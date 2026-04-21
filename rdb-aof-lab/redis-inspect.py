@@ -61,6 +61,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="最多展示多少段缺失区间",
     )
+    parser.add_argument(
+        "--expected-last-seq",
+        default=0,
+        type=int,
+        help="如果你记下了宕机前最后看到的 seq，可填在这里用于计算实际尾部丢失",
+    )
     return parser.parse_args()
 
 
@@ -146,7 +152,12 @@ def format_gap_ranges(gaps: list[tuple[int, int]], gap_limit: int) -> str:
 
 
 def print_server_snapshot(
-    client: redis.Redis, meta: dict[str, str], prefix: str, gap_limit: int, samples: int
+    client: redis.Redis,
+    meta: dict[str, str],
+    prefix: str,
+    gap_limit: int,
+    samples: int,
+    expected_last_seq: int,
 ) -> None:
     """打印 Redis 服务状态和当前实验前缀的数据概况。"""
     info = client.info()
@@ -204,6 +215,13 @@ def print_server_snapshot(
     else:
         print("元数据：暂时还没有发现写入器留下的状态信息")
 
+    if expected_last_seq > 0:
+        actual_tail_loss = max(expected_last_seq - (max_seq or 0), 0)
+        print(
+            f"按你记录的宕机前最后 seq={expected_last_seq} 计算，"
+            f"实际尾部丢失={actual_tail_loss}"
+        )
+
     if not seqs:
         print("当前前缀下的数据 key 数=0")
         print("最近样本：暂无")
@@ -240,7 +258,11 @@ def print_server_snapshot(
 
 
 def print_snapshot(
-    client: redis.Redis, prefix: str, samples: int, gap_limit: int
+    client: redis.Redis,
+    prefix: str,
+    samples: int,
+    gap_limit: int,
+    expected_last_seq: int,
 ) -> None:
     """打印一份当前 Redis 状态快照，便于人工观察。"""
     meta_hash = f"{prefix}:meta"
@@ -251,6 +273,7 @@ def print_snapshot(
         prefix=prefix,
         gap_limit=gap_limit,
         samples=samples,
+        expected_last_seq=expected_last_seq,
     )
 
 
@@ -278,6 +301,7 @@ def main() -> int:
                 prefix=args.prefix,
                 samples=args.samples,
                 gap_limit=args.gap_limit,
+                expected_last_seq=args.expected_last_seq,
             )
         except redis.RedisError as exc:
             print(f"检查失败：{exc}", file=sys.stderr)
