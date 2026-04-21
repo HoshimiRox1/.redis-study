@@ -29,27 +29,29 @@ DEFAULT_PREFIX = "lab:redis"
 def parse_args() -> argparse.Namespace:
     """定义检查脚本的命令行参数。"""
     parser = argparse.ArgumentParser(
-        description="Inspect Redis experiment data on localhost:6380."
+        description="检查 Redis 当前状态，默认连接本机 6380 端口。",
+        add_help=False,
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Redis host")
-    parser.add_argument("--port", default=6380, type=int, help="Redis port")
-    parser.add_argument("--db", default=0, type=int, help="Redis database index")
+    parser.add_argument("-h", "--help", action="help", help="显示帮助信息并退出")
+    parser.add_argument("--host", default="127.0.0.1", help="Redis 主机地址")
+    parser.add_argument("--port", default=6380, type=int, help="Redis 端口")
+    parser.add_argument("--db", default=0, type=int, help="Redis 数据库编号")
     parser.add_argument(
         "--prefix",
         default=DEFAULT_PREFIX,
-        help="Base prefix used by redis-write.py",
+        help="redis-write.py 使用的数据前缀",
     )
     parser.add_argument(
         "--samples",
         default=5,
         type=int,
-        help="How many recent keys to inspect",
+        help="查看最近多少条样本 key",
     )
     parser.add_argument(
         "--watch",
         default=0,
         type=float,
-        help="Refresh interval in seconds; 0 means run once",
+        help="刷新间隔，单位秒；0 表示只执行一次",
     )
     return parser.parse_args()
 
@@ -95,40 +97,40 @@ def print_snapshot(client: redis.Redis, prefix: str, samples: int) -> None:
     db_stats = keyspace.get(f"db{db_index}", {})
 
     print("=" * 72)
-    print(f"time: {datetime.now().isoformat(timespec='seconds')}")
+    print(f"时间：{datetime.now().isoformat(timespec='seconds')}")
     print(
-        f"redis_version={info.get('redis_version')} "
-        f"role={info.get('role')} connected_clients={info.get('connected_clients')}"
+        f"Redis 版本={info.get('redis_version')} "
+        f"角色={info.get('role')} 已连接客户端={info.get('connected_clients')}"
     )
     print(
-        f"db{db_index} keys={db_stats.get('keys', 0)} "
-        f"expires={db_stats.get('expires', 0)}"
+        f"db{db_index} key 数={db_stats.get('keys', 0)} "
+        f"设置过期的 key 数={db_stats.get('expires', 0)}"
     )
     print(
-        f"used_memory_human={memory.get('used_memory_human')} "
-        f"aof_enabled={persistence.get('aof_enabled')} "
-        f"rdb_bgsave_in_progress={persistence.get('rdb_bgsave_in_progress')}"
+        f"已用内存={memory.get('used_memory_human')} "
+        f"AOF 已开启={persistence.get('aof_enabled')} "
+        f"RDB 后台保存中={persistence.get('rdb_bgsave_in_progress')}"
     )
     print(
-        f"loading={persistence.get('loading')} "
-        f"aof_rewrite_in_progress={persistence.get('aof_rewrite_in_progress')} "
-        f"last_save_time={persistence.get('rdb_last_save_time')}"
+        f"加载中={persistence.get('loading')} "
+        f"AOF 重写中={persistence.get('aof_rewrite_in_progress')} "
+        f"最近一次 RDB 保存时间={persistence.get('rdb_last_save_time')}"
     )
 
     if meta:
         print(
-            f"run_id={meta.get('run_id')} total_writes={meta.get('total_writes')} "
-            f"last_seq={meta.get('last_seq')} last_write={meta.get('last_write_at')} "
+            f"run_id={meta.get('run_id')} 写入总数={meta.get('total_writes')} "
+            f"最后序号={meta.get('last_seq')} 最近写入时间={meta.get('last_write_at')} "
             f"({format_ago(meta.get('last_write_at'))})"
         )
     else:
-        print("meta: no writer metadata found yet")
+        print("元数据：暂时还没有发现写入器留下的状态信息")
 
     if not recent_keys:
-        print("recent samples: none")
+        print("最近样本：暂无")
         return
 
-    print("recent samples:")
+    print("最近样本：")
     for key in recent_keys:
         # ttl=-1 表示永久 key，ttl=-2 表示这个 key 已经不存在了。
         ttl = client.ttl(key)
@@ -142,7 +144,7 @@ def print_snapshot(client: redis.Redis, prefix: str, samples: int) -> None:
             }
         else:
             preview = value
-        print(f"- {key} ttl={ttl} value={preview}")
+        print(f"- key={key} ttl={ttl} value={preview}")
 
 
 def main() -> int:
@@ -159,14 +161,14 @@ def main() -> int:
     try:
         client.ping()
     except redis.RedisError as exc:
-        print(f"Redis connection failed: {exc}", file=sys.stderr)
+        print(f"Redis 连接失败：{exc}", file=sys.stderr)
         return 1
 
     while True:
         try:
             print_snapshot(client=client, prefix=args.prefix, samples=args.samples)
         except redis.RedisError as exc:
-            print(f"Inspect failed: {exc}", file=sys.stderr)
+            print(f"检查失败：{exc}", file=sys.stderr)
             return 1
 
         # watch=0 表示只打印一次；大于 0 时按间隔持续刷新。

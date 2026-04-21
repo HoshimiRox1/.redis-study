@@ -46,45 +46,47 @@ class WriterStats:
 def build_parser() -> argparse.ArgumentParser:
     """定义写入脚本的命令行参数。"""
     parser = argparse.ArgumentParser(
-        description="Continuously write Redis experiment data to localhost:6380."
+        description="持续向 Redis 写入实验数据，默认连接本机 6380 端口。",
+        add_help=False,
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Redis host")
-    parser.add_argument("--port", default=6380, type=int, help="Redis port")
-    parser.add_argument("--db", default=0, type=int, help="Redis database index")
+    parser.add_argument("-h", "--help", action="help", help="显示帮助信息并退出")
+    parser.add_argument("--host", default="127.0.0.1", help="Redis 主机地址")
+    parser.add_argument("--port", default=6380, type=int, help="Redis 端口")
+    parser.add_argument("--db", default=0, type=int, help="Redis 数据库编号")
     parser.add_argument(
         "--prefix",
         default=DEFAULT_PREFIX,
-        help="Base prefix for generated experiment keys",
+        help="实验数据 key 的统一前缀",
     )
     parser.add_argument(
         "--batch-size",
         default=100,
         type=int,
-        help="How many keys to write per pipeline batch",
+        help="每个 pipeline 批次写入多少个 key",
     )
     parser.add_argument(
         "--sleep",
         default=0.2,
         type=float,
-        help="Sleep seconds between batches",
+        help="每个批次之间休眠多少秒",
     )
     parser.add_argument(
         "--payload-size",
         default=256,
         type=int,
-        help="Approximate payload size for each value",
+        help="每条 value 的近似大小",
     )
     parser.add_argument(
         "--ttl",
         default=0,
         type=int,
-        help="Optional TTL for generated keys in seconds; 0 means persistent",
+        help="给实验 key 设置过期时间，单位秒；0 表示不过期",
     )
     parser.add_argument(
         "--recent-keep",
         default=20,
         type=int,
-        help="How many recent keys to keep in the helper list",
+        help="辅助列表里保留最近多少个 key",
     )
     return parser
 
@@ -174,7 +176,7 @@ def main() -> int:
     try:
         client.ping()
     except redis.RedisError as exc:
-        print(f"Redis connection failed: {exc}", file=sys.stderr)
+        print(f"Redis 连接失败：{exc}", file=sys.stderr)
         return 1
 
     stop = False
@@ -204,7 +206,7 @@ def main() -> int:
         },
     )
     print(
-        "Starting Redis writer:",
+        "启动写入器：",
         f"host={args.host}",
         f"port={args.port}",
         f"db={args.db}",
@@ -230,16 +232,16 @@ def main() -> int:
         # 定期打印进度，方便确认写入器仍在工作。
         if stats.total_batches % 5 == 0:
             print(
-                f"[{utc_now_iso()}] batches={stats.total_batches} "
-                f"writes={stats.total_writes} qps={stats.qps():.1f}"
+                f"[{utc_now_iso()}] 批次={stats.total_batches} "
+                f"写入总数={stats.total_writes} 每秒写入={stats.qps():.1f}"
             )
 
         if args.sleep > 0:
             time.sleep(args.sleep)
 
     print(
-        f"Stopped. total_writes={stats.total_writes} "
-        f"total_batches={stats.total_batches} qps={stats.qps():.1f}"
+        f"写入器已停止。写入总数={stats.total_writes} "
+        f"批次数={stats.total_batches} 每秒写入={stats.qps():.1f}"
     )
     return 0
 
