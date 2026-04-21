@@ -43,6 +43,14 @@ class WriterStats:
         return self.total_writes / elapsed
 
 
+def positive_int(value: str) -> int:
+    """把命令行参数解析成正整数。"""
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("该参数必须是大于 0 的整数")
+    return number
+
+
 def build_parser() -> argparse.ArgumentParser:
     """定义写入脚本的命令行参数。"""
     parser = argparse.ArgumentParser(
@@ -61,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--batch-size",
         default=100,
-        type=int,
+        type=positive_int,
         help="每个 pipeline 批次写入多少个 key",
     )
     parser.add_argument(
@@ -73,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--payload-size",
         default=256,
-        type=int,
+        type=positive_int,
         help="每条 value 的近似大小",
     )
     parser.add_argument(
@@ -85,8 +93,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--recent-keep",
         default=20,
-        type=int,
+        type=positive_int,
         help="辅助列表里保留最近多少个 key",
+    )
+    parser.add_argument(
+        "--count",
+        default=0,
+        type=int,
+        help="总共写入多少条数据；0 表示持续写到手动停止",
     )
     return parser
 
@@ -162,6 +176,14 @@ def write_batch(
     return seq_start + batch_size
 
 
+def next_batch_size(total_writes: int, batch_size: int, count: int) -> int:
+    """根据总目标写入量，算出当前这一批实际要写多少条。"""
+    if count <= 0:
+        return batch_size
+    remain = count - total_writes
+    return min(batch_size, max(remain, 0))
+
+
 def main() -> int:
     """写入脚本入口函数。"""
     args = build_parser().parse_args()
@@ -203,6 +225,7 @@ def main() -> int:
             "last_write_at": "",
             "last_batch_size": 0,
             "total_writes": 0,
+            "target_writes": args.count,
         },
     )
     print(
@@ -212,29 +235,42 @@ def main() -> int:
         f"db={args.db}",
         f"prefix={args.prefix}",
         f"run_id={run_id}",
+        f"目标写入={args.count if args.count > 0 else '持续写入'}",
     )
 
     # 持续制造写流量，直到用户按下 Ctrl+C。
     while not stop:
+        current_batch_size = next_batch_size(
+            total_writes=stats.total_writes,
+            batch_size=args.batch_size,
+            count=args.count,
+        )
+        if current_batch_size <= 0:
+            break
+
         next_seq = write_batch(
             client=client,
             prefix=args.prefix,
             run_id=run_id,
             seq_start=next_seq,
-            batch_size=args.batch_size,
+            batch_size=current_batch_size,
             payload_size=args.payload_size,
             ttl=args.ttl,
             recent_keep=args.recent_keep,
         )
         stats.total_batches += 1
-        stats.total_writes += args.batch_size
+        stats.total_writes += current_batch_size
 
         # 定期打印进度，方便确认写入器仍在工作。
-        if stats.total_batches % 5 == 0:
+        if stats.total_batches % 5 == 0 or current_batch_size < args.batch_size:
             print(
                 f"[{utc_now_iso()}] 批次={stats.total_batches} "
                 f"写入总数={stats.total_writes} 每秒写入={stats.qps():.1f}"
             )
+
+        if args.count > 0 and stats.total_writes >= args.count:
+            print(f"已达到目标写入数：{args.count}")
+            break
 
         if args.sleep > 0:
             time.sleep(args.sleep)
